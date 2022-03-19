@@ -42,7 +42,7 @@ function run(baseUrl, endpoints) {
       const dom = new JSDOM(res.data);
       const { document } = dom.window;
       const magicSpellsTable = document.querySelector(
-        ".wiki_table.sortable.searchable"
+        "table.wiki_table"
       );
       const results = getTableRows(magicSpellsTable);
 
