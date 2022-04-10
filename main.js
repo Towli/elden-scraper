@@ -2,57 +2,90 @@ const fs = require("fs");
 const axios = require("axios");
 const jsdom = require("jsdom");
 
-const endpoints = require("./table_endpoints.json");
+const items = require("./item_names.json");
 
 const { JSDOM } = jsdom;
 
 const SCRAPING_BASE_URL = "https://eldenring.wiki.fextralife.com";
 
+const results = [];
+
 function fetch(url) {
   return axios({ method: "get", url });
 }
 
-function getTableRows(table) {
-  const rows = Array.from(table.querySelectorAll("tr"));
-  const properties = parseValuesFromRow(rows[0]);
-  const valueMap = rows.slice(1, rows.length - 1).map(parseValuesFromRow);
-
-  const parsedTable = [];
-
-  valueMap.forEach((values) => {
-    const entry = {};
-    properties.forEach((property, idx) => {
-      entry[property] = values[idx];
-    });
-    parsedTable.push(entry);
-  });
-
-  return parsedTable;
+function parseBasicItemInfo(table) {
+  return {
+    name: table.querySelector("h2").textContent,
+    image: table.querySelector("img").src,
+    category: table.querySelectorAll("a")[10].textContent,
+  };
 }
 
-function parseValuesFromRow(row) {
-  return Array.from(row.children).map((child) => {
-    return child.textContent;
+function parseLocation(element) {
+  const h3s = element.querySelectorAll("h3");
+
+  const targetH3 = Array.from(h3s).find((el) => {
+    const txt = el.textContent?.toUpperCase();
+
+    return (
+      txt.includes("WHERE TO") ||
+      txt.includes("IN ELDEN RING") ||
+      txt.includes("FIND")
+    );
   });
-}
 
-function run(baseUrl, endpoints) {
-  endpoints.forEach((endpoint) => {
-    fetch(baseUrl + "/" + endpoint).then((res) => {
-      const dom = new JSDOM(res.data);
-      const { document } = dom.window;
-      const magicSpellsTable = document.querySelector(
-        "table.wiki_table"
-      );
-      const results = getTableRows(magicSpellsTable);
+  let nextElementSibling = targetH3?.nextElementSibling;
 
-      fs.writeFileSync(
-        `./data/${endpoint}.json`,
-        JSON.stringify(results, null, 4),
-        "utf-8"
-      );
-    });
+  while (
+    nextElementSibling?.tagName !== "UL" &&
+    nextElementSibling?.nextElementSibling
+  ) {
+    nextElementSibling = nextElementSibling.nextElementSibling;
+  }
+
+  return Array.from(nextElementSibling?.children)?.map((child) => {
+    return child?.textContent.replaceAll(/\s\s+/g, " ");
   });
 }
 
-run(SCRAPING_BASE_URL, endpoints);
+function getTableData({ table, document }) {
+  const basicInfo = parseBasicItemInfo(table);
+  const location = parseLocation(document);
+
+  return { ...basicInfo, location, tracked: false, collected: false };
+}
+
+function run(items, baseUrl = SCRAPING_BASE_URL) {
+  console.log("executing run with: ", items);
+
+  return Promise.all(
+    items.map((item) => {
+      const URL = encodeURI(baseUrl + "/" + item);
+      console.log(URL);
+      return fetch(URL).then((res) => {
+        const dom = new JSDOM(res.data);
+        const { document } = dom.window;
+        const table = document.querySelector("table.wiki_table");
+
+        results.push(getTableData({ table, document }));
+      });
+    })
+  );
+}
+
+const batchProcess = async (task, args, maxParallelTasks = 20) => {
+  for (let i = 0; i < args.length; i += maxParallelTasks) {
+    const argsSubset = args.slice(i, i + maxParallelTasks);
+    await task(argsSubset);
+  }
+};
+
+(async () => {
+  await batchProcess(run, items);
+  fs.writeFileSync(
+    `./data/database.json`,
+    JSON.stringify(results, null, 4),
+    "utf-8"
+  );
+})();
