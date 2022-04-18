@@ -14,11 +14,12 @@ function fetch(url) {
     return axios({ method: "get", url });
 }
 
-function parseBasicItemInfo(table) {
+function parseBasicItemInfo({ table, document }) {
     return {
         name: table.querySelector("h2").textContent,
-        image: table.querySelector("img").src,
-        category: table.querySelectorAll("a")[10].textContent,
+        image: `${SCRAPING_BASE_URL}/${table.querySelector("img").src}`,
+        category: document.querySelector("#breadcrumbs-container").children[2]
+            .textContent,
     };
 }
 
@@ -50,15 +51,13 @@ function parseLocation(element) {
 }
 
 function getTableData({ table, document }) {
-    const basicInfo = parseBasicItemInfo(table);
+    const basicInfo = parseBasicItemInfo({ table, document });
     const location = parseLocation(document);
 
     return { ...basicInfo, location, tracked: false, collected: false };
 }
 
 function run(items, baseUrl = SCRAPING_BASE_URL) {
-    console.log("executing run with: ", items);
-
     return Promise.all(
         items.map((item) => {
             const URL = encodeURI(baseUrl + "/" + item);
